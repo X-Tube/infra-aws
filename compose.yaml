@@ -1,0 +1,14 @@
+services:
+  infra-aws:
+    image: localstack/localstack:latest
+    container_name: xtube-infra-aws
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN}
+      - DEBUG=1
+      - PERSISTENCE=1
+      - ACTIVATE_PRO=0
+    volumes:
+      - "./xtube-infra-aws:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
