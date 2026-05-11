@@ -1,0 +1,21 @@
+{
+    "QueueConfigurations": [
+        {
+            "Id": "xtube-thumbnail-upload-event",
+            "QueueArn": "arn:aws:sqs:us-east-1:000000000000:xtube-thumbnail-processing",
+            "Events": [
+                "s3:ObjectCreated:*"
+            ],
+            "Filter": {
+                "Key": {
+                    "FilterRules": [
+                        {
+                            "Name": "prefix",
+                            "Value": "thumbnails/"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}

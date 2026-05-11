@@ -40,6 +40,25 @@ create_queue() {
   fi
 }
 
+create_notification_config() {
+  local bucket="$1"
+  local config="$2"
+  local notification_config
+
+  notification_config="$(aws_local s3api get-bucket-notification-configuration --bucket "$bucket" --output json)"
+
+  if [ "$notification_config" != "{}" ]; then
+    echo "Configuração já existente: $config"
+    return
+  fi
+
+  aws_local s3api put-bucket-notification-configuration \
+    --bucket "$bucket" \
+    --notification-configuration file://configs/s3-"$config"-notification.json >/dev/null
+
+  echo "Configuração criada: $config"
+}
+
 echo "Configurando AWS local em $ENDPOINT_URL"
 echo "Região: $REGION"
 echo "Credenciais locais: $AWS_ACCESS_KEY_ID / $AWS_SECRET_ACCESS_KEY"
@@ -52,6 +71,9 @@ create_bucket "xtube-temp"
 create_queue "xtube-video-processing"
 create_queue "xtube-video-processing-dlq"
 create_queue "xtube-thumbnail-processing"
+
+create_notification_config "xtube-videos-input" "video"
+create_notification_config "xtube-thumbnails" "thumbnail"
 
 MAIN_QUEUE_URL="$(aws_local sqs get-queue-url --queue-name xtube-video-processing --query QueueUrl --output text)"
 DLQ_URL="$(aws_local sqs get-queue-url --queue-name xtube-video-processing-dlq --query QueueUrl --output text)"

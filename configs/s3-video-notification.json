@@ -1,0 +1,21 @@
+{
+    "QueueConfigurations": [
+        {
+            "Id": "xtube-video-upload-event",
+            "QueueArn": "arn:aws:sqs:us-east-1:000000000000:xtube-video-processing",
+            "Events": [
+                "s3:ObjectCreated:*"
+            ],
+            "Filter": {
+                "Key": {
+                    "FilterRules": [
+                        {
+                            "Name": "prefix",
+                            "Value": "uploads/"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}
