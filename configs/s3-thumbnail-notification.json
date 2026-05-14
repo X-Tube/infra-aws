@@ -11,7 +11,7 @@
                     "FilterRules": [
                         {
                             "Name": "prefix",
-                            "Value": "thumbnails/"
+                            "Value": "uploads/"
                         }
                     ]
                 }

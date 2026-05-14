@@ -201,15 +201,28 @@ maxReceiveCount = 3
 The main video processing queue uses:
 
 ```text
-VisibilityTimeout = 300 seconds
+VisibilityTimeout = 3600 seconds
 MessageRetentionPeriod = 1209600 seconds
 ```
 
 The thumbnail processing queue uses:
 
 ```text
-VisibilityTimeout = 120 seconds
+VisibilityTimeout = 600 seconds
 MessageRetentionPeriod = 1209600 seconds
+```
+
+The setup script also writes worker timeout defaults to `.env.localstack`:
+
+```text
+SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS = 3600
+SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS = 600
+SQS_WAIT_TIME_SECONDS = 20
+SQS_MAX_MESSAGES = 10
+SQS_ERROR_DELAY_SECONDS = 2
+LOG_LEVEL = info
+LOG_CHUNK_DETAILS = false
+LOG_FFMPEG_PROGRESS = true
 ```
 
 ## Generated Environment File
@@ -233,6 +246,15 @@ S3_BUCKET_TEMP=xtube-temp
 SQS_VIDEO_PROCESSING_URL=http://localhost:4566/000000000000/xtube-video-processing
 SQS_VIDEO_PROCESSING_DLQ_URL=http://localhost:4566/000000000000/xtube-video-processing-dlq
 SQS_THUMBNAIL_PROCESSING_URL=http://localhost:4566/000000000000/xtube-thumbnail-processing
+SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS=3600
+SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS=600
+SQS_WAIT_TIME_SECONDS=20
+SQS_MAX_MESSAGES=10
+SQS_ERROR_DELAY_SECONDS=2
+
+LOG_LEVEL=info
+LOG_CHUNK_DETAILS=false
+LOG_FFMPEG_PROGRESS=true
 ```
 
 This file should be used by the XTube services during local development.
@@ -257,7 +279,7 @@ Upload a test file to the input bucket:
 
 ```bash
 echo "test video content" > test-video.txt
-aws --endpoint-url=http://localhost:4566 s3 cp test-video.txt s3://xtube-videos-input/test-video.txt
+aws --endpoint-url=http://localhost:4566 s3 cp test-video.txt s3://xtube-videos-input/uploads/test-video/original.txt
 ```
 
 List files from the input bucket:
@@ -271,7 +293,7 @@ Send a test message to the video processing queue:
 ```bash
 aws --endpoint-url=http://localhost:4566 sqs send-message \
   --queue-url http://localhost:4566/000000000000/xtube-video-processing \
-  --message-body '{"videoId":"test-video","bucket":"xtube-videos-input","key":"test-video.txt"}'
+  --message-body '{"Records":[{"eventSource":"aws:s3","eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"xtube-videos-input"},"object":{"key":"uploads/test-video/original.txt"}}}]}'
 ```
 
 Receive messages from the queue:
@@ -304,6 +326,14 @@ S3_BUCKET_TEMP
 SQS_VIDEO_PROCESSING_URL
 SQS_VIDEO_PROCESSING_DLQ_URL
 SQS_THUMBNAIL_PROCESSING_URL
+SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS
+SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS
+SQS_WAIT_TIME_SECONDS
+SQS_MAX_MESSAGES
+SQS_ERROR_DELAY_SECONDS
+LOG_LEVEL
+LOG_CHUNK_DETAILS
+LOG_FFMPEG_PROGRESS
 ```
 
 ## Recommended Development Flow

@@ -3,6 +3,14 @@ set -euo pipefail
 
 ENDPOINT_URL="${AWS_ENDPOINT_URL:-http://localhost:4566}"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS="${SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS:-3600}"
+SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS="${SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS:-600}"
+SQS_WAIT_TIME_SECONDS="${SQS_WAIT_TIME_SECONDS:-20}"
+SQS_MAX_MESSAGES="${SQS_MAX_MESSAGES:-10}"
+SQS_ERROR_DELAY_SECONDS="${SQS_ERROR_DELAY_SECONDS:-2}"
+LOG_LEVEL="${LOG_LEVEL:-info}"
+LOG_CHUNK_DETAILS="${LOG_CHUNK_DETAILS:-false}"
+LOG_FFMPEG_PROGRESS="${LOG_FFMPEG_PROGRESS:-true}"
 
 export AWS_ACCESS_KEY_ID="test"
 export AWS_SECRET_ACCESS_KEY="test"
@@ -43,20 +51,57 @@ create_queue() {
 create_notification_config() {
   local bucket="$1"
   local config="$2"
-  local notification_config
+  local queue_url="$3"
+  local prefix="$4"
+  local queue_arn
+  local notification_file
 
-  notification_config="$(aws_local s3api get-bucket-notification-configuration --bucket "$bucket" --output json)"
+  queue_arn="$(aws_local sqs get-queue-attributes \
+    --queue-url "$queue_url" \
+    --attribute-names QueueArn \
+    --query 'Attributes.QueueArn' \
+    --output text)"
 
-  if [ "$notification_config" != "{}" ]; then
-    echo "Configuração já existente: $config"
-    return
-  fi
+  notification_file="$(mktemp)"
+  cat > "$notification_file" <<EOF
+{
+  "QueueConfigurations": [
+    {
+      "Id": "xtube-$config-upload-event",
+      "QueueArn": "$queue_arn",
+      "Events": [
+        "s3:ObjectCreated:*"
+      ],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "prefix",
+              "Value": "$prefix"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+EOF
 
   aws_local s3api put-bucket-notification-configuration \
     --bucket "$bucket" \
-    --notification-configuration file://configs/s3-"$config"-notification.json >/dev/null
+    --notification-configuration file://"$notification_file" >/dev/null
 
-  echo "Configuração criada: $config"
+  rm -f "$notification_file"
+
+  echo "Configuração aplicada: $config"
+}
+
+purge_queue() {
+  local queue_url="$1"
+  local queue_name="$2"
+
+  aws_local sqs purge-queue --queue-url "$queue_url" >/dev/null 2>&1 || true
+  echo "Fila limpa: $queue_name"
 }
 
 echo "Configurando AWS local em $ENDPOINT_URL"
@@ -72,9 +117,6 @@ create_queue "xtube-video-processing"
 create_queue "xtube-video-processing-dlq"
 create_queue "xtube-thumbnail-processing"
 
-create_notification_config "xtube-videos-input" "video"
-create_notification_config "xtube-thumbnails" "thumbnail"
-
 MAIN_QUEUE_URL="$(aws_local sqs get-queue-url --queue-name xtube-video-processing --query QueueUrl --output text)"
 DLQ_URL="$(aws_local sqs get-queue-url --queue-name xtube-video-processing-dlq --query QueueUrl --output text)"
 THUMBNAIL_QUEUE_URL="$(aws_local sqs get-queue-url --queue-name xtube-thumbnail-processing --query QueueUrl --output text)"
@@ -87,11 +129,18 @@ DLQ_ARN="$(aws_local sqs get-queue-attributes \
 
 aws_local sqs set-queue-attributes \
   --queue-url "$MAIN_QUEUE_URL" \
-  --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\",\"VisibilityTimeout\":\"300\",\"MessageRetentionPeriod\":\"1209600\"}"
+  --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\",\"VisibilityTimeout\":\"$SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS\",\"MessageRetentionPeriod\":\"1209600\"}"
 
 aws_local sqs set-queue-attributes \
   --queue-url "$THUMBNAIL_QUEUE_URL" \
-  --attributes "{\"VisibilityTimeout\":\"120\",\"MessageRetentionPeriod\":\"1209600\"}"
+  --attributes "{\"VisibilityTimeout\":\"$SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS\",\"MessageRetentionPeriod\":\"1209600\"}"
+
+create_notification_config "xtube-videos-input" "video" "$MAIN_QUEUE_URL" "uploads/"
+create_notification_config "xtube-thumbnails" "thumbnail" "$THUMBNAIL_QUEUE_URL" "uploads/"
+
+purge_queue "$MAIN_QUEUE_URL" "xtube-video-processing"
+purge_queue "$THUMBNAIL_QUEUE_URL" "xtube-thumbnail-processing"
+purge_queue "$DLQ_URL" "xtube-video-processing-dlq"
 
 cat > .env.localstack <<EOF
 AWS_ENDPOINT_URL=$ENDPOINT_URL
@@ -108,6 +157,15 @@ S3_BUCKET_TEMP=xtube-temp
 SQS_VIDEO_PROCESSING_URL=$MAIN_QUEUE_URL
 SQS_VIDEO_PROCESSING_DLQ_URL=$DLQ_URL
 SQS_THUMBNAIL_PROCESSING_URL=$THUMBNAIL_QUEUE_URL
+SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS=$SQS_VIDEO_VISIBILITY_TIMEOUT_SECONDS
+SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS=$SQS_THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS
+SQS_WAIT_TIME_SECONDS=$SQS_WAIT_TIME_SECONDS
+SQS_MAX_MESSAGES=$SQS_MAX_MESSAGES
+SQS_ERROR_DELAY_SECONDS=$SQS_ERROR_DELAY_SECONDS
+
+LOG_LEVEL=$LOG_LEVEL
+LOG_CHUNK_DETAILS=$LOG_CHUNK_DETAILS
+LOG_FFMPEG_PROGRESS=$LOG_FFMPEG_PROGRESS
 EOF
 
 echo ""
